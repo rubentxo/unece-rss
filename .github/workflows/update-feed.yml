@@ -1,9 +1,8 @@
 name: Update UNECE RSS feed
 
-# Ejecuta cada día a las 06:00 UTC y permite ejecución manual
 on:
   schedule:
-    - cron: "0 6 * * *"
+    - cron: "0 6 * * *"   # Todos los días a las 06:00 UTC
   workflow_dispatch:
 
 jobs:
@@ -11,26 +10,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Clonar el repositorio
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2️⃣ Configurar Python
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.11"
 
-      # 3️⃣ Instalar dependencias
       - name: Install dependencies
-        run: |
-          pip install requests beautifulsoup4 feedgen lxml
+        run: pip install requests beautifulsoup4 feedgen lxml
 
-      # 4️⃣ Ejecutar script para generar feed.xml
       - name: Generate feed.xml
         run: python scripts/generate_feed.py
 
-      # 5️⃣ Commit y push del feed actualizado
       - name: Commit and push feed.xml
         run: |
           git config --global user.name "github-actions[bot]"

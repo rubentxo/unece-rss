@@ -1,67 +1,64 @@
 import requests
 from bs4 import BeautifulSoup
 from feedgen.feed import FeedGenerator
+import json
 from datetime import datetime
-import email.utils as eut
+import os
 
-# Normas que monitorizamos
-REGULATIONS = {
-    "R53": "https://unece.org/transport/standards/transport/vehicle-regulations-wp29/un-regulations/addenda-1958-agreement-r53",
-    "R148": "https://unece.org/transport/standards/transport/vehicle-regulations-wp29/un-regulations/addenda-1958-agreement-r148",
-    "R149": "https://unece.org/transport/standards/transport/vehicle-regulations-wp29/un-regulations/addenda-1958-agreement-r149",
+# URLs base para raspar
+REGULATIONS_BASE = {
+    "R53": "https://unece.org/transport/vehicle-regulations-wp29/standards/addenda-1958-agreement-regulations-41-60",
+    "R148": "https://unece.org/transport/vehicle-regulations-wp29/standards/addenda-1958-agreement-regulations-141-160",
+    "R149": "https://unece.org/transport/vehicle-regulations-wp29/standards/addenda-1958-agreement-regulations-141-160"
 }
 
-OUTPUT_FILE = "feed.xml"
+SEEN_FILE = "seen_links.json"
 
-def iso_to_rfc2822(dt):
-    return eut.format_datetime(dt)
+# Cargar PDFs ya vistos o inicializar vacío
+if os.path.exists(SEEN_FILE):
+    with open(SEEN_FILE, "r") as f:
+        seen_links = json.load(f)
+else:
+    seen_links = []
 
-def fetch_pdf_link(url):
+fg = FeedGenerator()
+fg.title("UNECE Regulations Updates")
+fg.link(href="https://github.com/TU_USUARIO/unece-rss", rel="self")
+fg.description("Actualizaciones de las normas UNECE R53, R148 y R149")
+fg.language("en")
+
+new_links = []
+
+for reg, url in REGULATIONS_BASE.items():
     try:
         r = requests.get(url, headers={"User-Agent": "UNECE-RSS-Bot"}, timeout=30)
         r.raise_for_status()
     except Exception as e:
         print(f"Error al obtener {url}: {e}")
-        return None
+        continue
 
     soup = BeautifulSoup(r.text, "html.parser")
+
+    # Buscar enlaces a PDFs o con el nombre de la norma
     for a in soup.find_all("a", href=True):
-        if a["href"].lower().endswith(".pdf"):
-            href = a["href"]
+        href = a["href"]
+        if href.endswith(".pdf") or any(reg in href for reg in ["R53","R148","R149"]):
             if href.startswith("/"):
                 href = "https://unece.org" + href
-            return href
-    return None
+            if href in seen_links:
+                continue
+            title = a.get_text(strip=True) or f"{reg} update"
+            fe = fg.add_entry()
+            fe.title(title)
+            fe.link(href=href)
+            fe.pubDate(datetime.utcnow())
+            new_links.append(href)
 
-def build_feed():
-    fg = FeedGenerator()
-    fg.id("https://unece.org/un-regulations-addenda-1958-agreement")
-    fg.title("UNECE Regulations RSS (R53, R148, R149)")
-    fg.link(href="https://unece.org/un-regulations-addenda-1958-agreement", rel="alternate")
-    fg.language("en")
-    fg.description("Feed automático de actualizaciones UNECE para R53, R148 y R149")
+# Guardar links nuevos como vistos
+seen_links.extend(new_links)
+with open(SEEN_FILE, "w") as f:
+    json.dump(seen_links, f)
 
-    now = datetime.utcnow()
-    pub_date = iso_to_rfc2822(now)
-
-    for reg, url in REGULATIONS.items():
-        pdf_link = fetch_pdf_link(url)
-        fe = fg.add_entry()
-        fe.id(url)
-        fe.title(f"UN Regulation {reg}")
-        fe.link(href=url)
-        desc = f"Última versión disponible en UNECE: {url}"
-        if pdf_link:
-            desc += f" (PDF: {pdf_link})"
-        fe.description(desc)
-        fe.pubDate(pub_date)
-
-    return fg
-
-def main():
-    fg = build_feed()
-    fg.rss_file(OUTPUT_FILE)
-    print(f"Feed actualizado: {OUTPUT_FILE}")
-
-if __name__ == "__main__":
-    main()
+# Guardar feed RSS
+fg.rss_file("feed.xml")
+print(f"Feed generado con {len(new_links)} nuevas entradas")

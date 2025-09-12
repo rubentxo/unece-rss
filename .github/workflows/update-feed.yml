@@ -1,33 +1,80 @@
-name: Update UNECE RSS feed
+import requests
+from bs4 import BeautifulSoup
+from feedgen.feed import FeedGenerator
+from datetime import datetime
+import email.utils as eut
 
-on:
-  schedule:
-    - cron: "0 6 * * *"   # Todos los días a las 6:00 UTC
-  workflow_dispatch:       # Permite lanzarlo manualmente desde GitHub Actions
+# ---------------------------------------------------
+# Configuración de normas y URLs
+# ---------------------------------------------------
+REGULATIONS = {
+    "R53": "https://unece.org/transport/standards/transport/vehicle-regulations-wp29/un-regulations/addenda-1958-agreement-r53",
+    "R148": "https://unece.org/transport/standards/transport/vehicle-regulations-wp29/un-regulations/addenda-1958-agreement-r148",
+    "R149": "https://unece.org/transport/standards/transport/vehicle-regulations-wp29/un-regulations/addenda-1958-agreement-r149",
+}
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
+OUTPUT_FILE = "feed.xml"
 
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v3
+# ---------------------------------------------------
+# Funciones auxiliares
+# ---------------------------------------------------
+def iso_to_rfc2822(dt):
+    """Convierte datetime a formato RFC 2822 para RSS."""
+    return eut.format_datetime(dt)
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.x"
+def fetch_pdf_link(url):
+    """Extrae el primer enlace PDF que encuentre en la página."""
+    try:
+        r = requests.get(url, headers={"User-Agent": "UNECE-RSS-Bot"}, timeout=30)
+        r.raise_for_status()
+    except Exception as e:
+        print(f"Error al obtener {url}: {e}")
+        return None
 
-      - name: Install dependencies
-        run: pip install requests feedgen beautifulsoup4 lxml
+    soup = BeautifulSoup(r.text, "html.parser")
+    for a in soup.find_all("a", href=True):
+        if a["href"].lower().endswith(".pdf"):
+            href = a["href"]
+            if href.startswith("/"):
+                href = "https://unece.org" + href
+            return href
+    return None
 
-      - name: Generate feed.xml
-        run: python scripts/generate_feed.py
+# ---------------------------------------------------
+# Crear feed RSS
+# ---------------------------------------------------
+def build_feed():
+    fg = FeedGenerator()
+    fg.id("https://unece.org/un-regulations-addenda-1958-agreement")
+    fg.title("UNECE Regulations RSS (R53, R148, R149)")
+    fg.link(href="https://unece.org/un-regulations-addenda-1958-agreement", rel="alternate")
+    fg.language("en")
+    fg.description("Feed automático de actualizaciones UNECE para R53, R148 y R149")
 
-      - name: Commit and push changes
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add feed.xml
-          git commit -m "Auto-update feed.xml"
-          git push
+    now = datetime.utcnow()
+    pub_date = iso_to_rfc2822(now)
+
+    for reg, url in REGULATIONS.items():
+        pdf_link = fetch_pdf_link(url)
+        fe = fg.add_entry()
+        fe.id(url)
+        fe.title(f"UN Regulation {reg}")
+        fe.link(href=url)
+        desc = f"Última versión disponible en UNECE: {url}"
+        if pdf_link:
+            desc += f" (PDF: {pdf_link})"
+        fe.description(desc)
+        fe.pubDate(pub_date)
+
+    return fg
+
+# ---------------------------------------------------
+# Guardar feed.xml
+# ---------------------------------------------------
+def main():
+    fg = build_feed()
+    fg.rss_file(OUTPUT_FILE)
+    print(f"Feed actualizado: {OUTPUT_FILE}")
+
+if __name__ == "__main__":
+    main()

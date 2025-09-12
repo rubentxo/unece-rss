@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Clonar el repo con token para permisos de push
+      # 1️⃣ Clonar el repo con GITHUB_TOKEN para push
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -26,11 +26,18 @@ jobs:
       - name: Install dependencies
         run: pip install requests beautifulsoup4 feedgen lxml
 
-      # 4️⃣ Ejecutar script
+      # 4️⃣ Crear seen_links.json si no existe
+      - name: Ensure seen_links.json exists
+        run: |
+          if [ ! -f seen_links.json ]; then
+            echo "[]" > seen_links.json
+          fi
+
+      # 5️⃣ Ejecutar script
       - name: Generate feed.xml
         run: python scripts/generate_feed.py
 
-      # 5️⃣ Commit y push de feed.xml y seen_links.json
+      # 6️⃣ Commit y push de feed.xml y seen_links.json
       - name: Commit and push feed.xml
         run: |
           git config --global user.name "github-actions[bot]"
